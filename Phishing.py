@@ -1,0 +1,258 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[30]:
+
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score,recall_score,precision_score,confusion_matrix,classification_report
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+import pickle
+pd.set_option('display.max_columns', None)
+
+# Import Dataset
+df = pd.read_csv("/Users/alexleslie/Desktop/dataset_phishing (1).csv")
+df.head()
+
+
+# In[31]:
+
+
+df.isna().sum()
+
+
+# In[32]:
+
+
+# removing missing values
+
+df.dropna(inplace=True)
+
+
+# In[33]:
+
+
+features = [
+    'length_url', 'length_hostname', 'ip', 'nb_dots', 'nb_hyphens', 'nb_at', 'nb_qm', 'nb_and', 'nb_or', 'nb_eq',
+    'nb_underscore', 'nb_tilde', 'nb_percent', 'nb_slash', 'nb_star', 'nb_colon', 'nb_comma', 'nb_semicolumn',
+    'nb_dollar', 'nb_space', 'nb_www', 'nb_com', 'nb_dslash', 'http_in_path', 'https_token', 'ratio_digits_url',
+    'ratio_digits_host', 'punycode', 'shortening_service', 'path_extension', 'phish_hints', 'domain_in_brand',
+    'brand_in_subdomain', 'brand_in_path', 'suspecious_tld'
+]
+
+
+# In[34]:
+
+
+# target feature mapping
+
+df['status'] = df['status'].map({'phishing': 1, 'legitimate': 0})
+
+
+# In[35]:
+
+
+df['status'].value_counts()
+
+
+# In[36]:
+
+
+df.describe()
+
+
+# In[37]:
+
+
+df.shape
+
+
+# In[38]:
+
+
+df.info()
+
+
+# In[39]:
+
+
+# Select only the numerical columns from the dataframe
+numerical_df = df.select_dtypes(include=['float64', 'int64'])
+
+# Compute the correlation matrix on the numerical columns
+corr_matrix = numerical_df.corr()
+
+
+# In[40]:
+
+
+status_corr = corr_matrix['status']
+status_corr.shape
+
+
+# In[41]:
+
+
+# Function for selecting features that are above than threshold value
+
+def feature_selector_correlation(cmatrix, threshold):
+
+    selected_features = []
+    feature_score = []
+    i=0
+    for score in cmatrix:
+        if abs(score)>threshold:
+            selected_features.append(cmatrix.index[i])
+            feature_score.append( ['{:3f}'.format(score)])
+        i+=1
+    result = list(zip(selected_features,feature_score))
+    return result
+
+
+# In[42]:
+
+
+features_selected = feature_selector_correlation(status_corr, 0.2)
+features_selected
+
+
+# In[43]:
+
+
+selected_features = []
+for feature, score in features_selected:
+    if feature != 'status':
+        selected_features.append(feature)
+
+
+# In[44]:
+
+
+selected_features
+
+
+# In[45]:
+
+
+X = df[features]
+y = df['status']
+
+
+# In[46]:
+
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
+
+
+# In[47]:
+
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+
+# In[48]:
+
+
+# Model Training
+classifiers = {
+    'Logistic Regression': LogisticRegression(),
+    'Random Forest': RandomForestClassifier(),
+    'Gradient Boosting': GradientBoostingClassifier(),
+    'SVM': SVC(),
+    'KNN': KNeighborsClassifier()
+}
+
+
+# In[49]:
+
+
+param_grids = {
+    'Logistic Regression': {
+        'C': [0.1, 1, 10]
+    },
+    'Random Forest': {
+        'n_estimators': [100, 200],
+        'max_depth': [None, 10, 20]
+    },
+    'Gradient Boosting': {
+        'n_estimators': [100, 200],
+        'learning_rate': [0.01, 0.1, 1]
+    },
+    'SVM': {
+        'C': [0.1, 1, 10],
+        'kernel': ['linear', 'rbf']
+    },
+    'KNN': {
+        'n_neighbors': [3, 5, 7,9],
+        'p': [1, 2]
+    }
+}
+
+
+# In[50]:
+
+
+results = {}
+for name, clf in classifiers.items():
+    grid_search = GridSearchCV(estimator=clf, param_grid=param_grids[name], cv=5, n_jobs=-1, scoring='accuracy')
+    grid_search.fit(X_train_scaled, y_train)
+    results[name] = grid_search
+
+
+# In[51]:
+
+
+for name, grid_search in results.items():
+    print(f"{name}:")
+    print("Best Parameters:", grid_search.best_params_)
+    print("Best Score:", grid_search.best_score_)
+    best_model = grid_search.best_estimator_
+    y_pred = best_model.predict(X_test_scaled)
+    test_accuracy = accuracy_score(y_test, y_pred)
+    print("Test Accuracy:", test_accuracy)
+    print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+    print("Classification Report:\n", classification_report(y_test, y_pred))
+    print()
+
+
+# In[52]:
+
+
+print("Summary of Best Models:")
+for name, grid_search in results.items():
+    print(f"{name}:")
+    print("Best Parameters:", grid_search.best_params_)
+    print("Best Score (CV):", grid_search.best_score_)
+    print()
+
+
+# In[53]:
+
+
+model=RandomForestClassifier(max_depth=20,n_estimators=100)
+model.fit(X_train,y_train)
+
+
+# In[54]:
+
+# Save the feature names
+with open('/Users/alexleslie/ml-router-project/features.pkl', 'wb') as features_file:
+    pickle.dump(features, features_file)
+    
+# Saving model for deployment
+
+with open('phishing_model.pkl', 'wb') as model_file:
+    pickle.dump(model, model_file)
+
+with open('scaler.pkl', 'wb') as scaler_file:
+    pickle.dump(scaler, scaler_file)
+
